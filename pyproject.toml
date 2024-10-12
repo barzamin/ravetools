@@ -1,0 +1,22 @@
+# todo: change after https://github.com/python-poetry/poetry/pull/9135 lands in a release
+
+[tool.poetry]
+name = "ravetools"
+version = "0.1.0"
+description = ""
+authors = ["erin petra sofiya moon <erin@hecke.rs>"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+spotipy = "^2.24.0"
+click = "^8.1.7"
+python-dotenv = "^1.0.1"
+tinytag = "^1.10.1"
+rapidfuzz = "^3.10.0"
+
+[tool.poetry.scripts]
+ravelibrarian = "ravetools.ravelibrarian:cli"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
