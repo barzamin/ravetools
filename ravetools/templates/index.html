@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rave LIBRARIAN !!! <3</title>
+
+  <style>
+  body {
+    margin: 1rem;
+    background-color: #eee;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  th, td {
+    border: 1px solid #336;
+  }
+
+  th {
+    background: #99e;
+  }
+
+  thead {
+    position: sticky;
+    top: 1rem;
+  }
+
+  tr.online-only {
+    border: 2px dashed #f44;
+    background: #ff000011;
+  }
+
+  code {
+    font-family: speedrun;
+  }
+
+  #cursorhearts {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: -100;
+  }
+
+  /* -*-*-*-*-*-*-*-*-*-*-*-*- heheeee fonts -*-*-*-*-*-*-*-*-*-*-*-*- */
+  h1,h2,h3,h4,h5,h6 { font-family: 'Cageroll'; }
+  body { font-family: 'MingLiU'; }
+  </style>
+</head>
+<body>
+  <h1>rave librarian xD !!</h1>
+
+  <img id="cursorhearts" src="flyinhearts.gif">
+
+  <table>
+    <thead>
+      <tr>
+        <th>💾 artist</th>
+        <th>💾 title</th>
+        <th>☁️ artist</th>
+        <th>☁️ title</th>
+        <th>☁️ spotid</th>
+        <th>findme</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for offline, online in pairs %}
+      <tr>
+        <td>{{offline.artist}}</td>
+        <td>{{offline.title}}</td>
+        <td>{{online.artist}}</td>
+        <td><a href="spotify:track:{{online.spotify_id}}">{{online.title}}</a></td>
+        <td><code>{{online.spotify_id}}</code></td>
+      </tr>
+      {% endfor %}
+
+      {% for online in online_only %}
+      <tr class="online-only">
+        <td></td>
+        <td></td>
+        <td>{{online.artist}}</td>
+        <td><a href="spotify:track:{{online.spotify_id}}">{{online.title}}</a></td>
+        <td><code>{{online.spotify_id}}</code></td>
+        <td>
+          <a href="https://www.beatport.com/search?q={{online.artist + ' ' + online.title |urlencode}}">bp</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script defer>
+    const cursorhearts = document.getElementById('cursorhearts');
+    document.addEventListener('mousemove', (evt) => {
+      cursorhearts.style.top = `${evt.pageY}px`;
+      cursorhearts.style.left = `${evt.pageX}px`;
+    });
+  </script>
+</body>
+</html>

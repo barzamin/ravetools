@@ -2,6 +2,11 @@ __pycache__/
 *.pyc
 
 *.env*
+.venv
 .cache
 
 .DS_Store
+
+compare.html
+testcrate/
+

@@ -7,15 +7,14 @@ from typing import Iterator, Any, Self
 from dotenv import load_dotenv
 import click
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
+from spotipy.oauth2 import SpotifyOAuth
 from tinytag import TinyTag
-
-import IPython
+from jinja2 import Environment, PackageLoader, select_autoescape
 
 
 load_dotenv()
 
-TrackInfo = dict
+type TrackInfo = dict
 
 def fetch_playlist_items(sp: spotipy.Spotify, uri: str, fields = None) -> list[TrackInfo]:
     offset = 0
@@ -82,6 +81,12 @@ def read_crate(*args, **kwargs) -> list[CrateTrack]:
     return list(_read_crate(*args, **kwargs))
 
 
+@dataclass
+class Discrepancies:
+    pairs: list[tuple[CrateTrack, SpotifyTrack]]
+    online_only: list[SpotifyTrack]
+
+
 TITLE_MATCH_THRESHOLD = 70.0
 ARTIST_MATCH_THRESHOLD = 70.0
 N_POTENTIAL_MATCHES = 5
@@ -89,10 +94,7 @@ N_POTENTIAL_MATCHES = 5
 def reconcile(
     crate: list[CrateTrack],
     online: list[SpotifyTrack]
-) -> tuple[
-    list[tuple[CrateTrack, SpotifyTrack]],
-    list[SpotifyTrack]
-]:
+) -> Discrepancies:
     online_names = [track.title for track in online]
     online_only = set(range(len(online)))
 
@@ -116,15 +118,37 @@ def reconcile(
             online_only.discard(idx)
             break
 
-    return pairs, [online[i] for i in online_only]
+    return Discrepancies(pairs, [online[i] for i in online_only])
+
+def discrep2txt(discrepancies):
+    for offline, online in discrepancies.pairs:
+        print(f'MATCH {offline.artist} - {offline.title} = {online.artist} - {online.title} ({online.spotify_id})')
+
+    for track in discrepancies.online_only:
+        print(f'MISSING {track.artist} - {track.title} ({track.spotify_id})')
+
+def discrep2html(discrepancies, f):
+    env = Environment(loader=PackageLoader('ravetools'), autoescape=select_autoescape())
+    tmpl = env.get_template('index.html')
+
+    f.write(tmpl.render(pairs=discrepancies.pairs, online_only=discrepancies.online_only))
+
 
 @click.command()
 @click.option('--spotify-client-id', envvar='SPOTIFY_CLIENT_ID')
 @click.option('--spotify-client-secret', envvar='SPOTIFY_CLIENT_SECRET')
+@click.option('--spotify-redirect-uri', envvar='SPOTIFY_REDIRECT_URI')
+@click.option('-f', '--format', 'fmt', type=click.Choice(['text', 'html'], case_sensitive=False), default='text')
+@click.option('-o', '--output', type=click.File('w'), default='-')
 @click.argument('playlist_uri')
 @click.argument('crate', type=click.Path(exists=True))
-def cli(spotify_client_id, spotify_client_secret, playlist_uri, crate):
-    auth_manager = SpotifyClientCredentials(spotify_client_id, spotify_client_secret)
+def cli(spotify_client_id, spotify_client_secret, spotify_redirect_uri, playlist_uri, crate, fmt, output):
+    auth_manager = SpotifyOAuth(
+        client_id=spotify_client_id,
+        client_secret=spotify_client_secret,
+        redirect_uri=spotify_redirect_uri,
+        scope='playlist-read-private'
+    )
     sp = spotipy.Spotify(auth_manager=auth_manager)
 
     playlist_items = fetch_playlist_items(sp, playlist_uri)
@@ -132,11 +156,9 @@ def cli(spotify_client_id, spotify_client_secret, playlist_uri, crate):
 
     crate_tracks = read_crate(crate)
 
-    pairs, online_only = reconcile(crate_tracks, spotify_tracks)
+    discrepancies = reconcile(crate_tracks, spotify_tracks)
 
-    for offline, online in pairs:
-        print(f'MATCH {offline.artist} - {offline.title} = {online.artist} - {online.title} ({online.spotify_id})')
-
-    for track in online_only:
-        print(f'MISSING {track.artist} - {track.title} ({track.spotify_id})')
-
+    if fmt == 'text':
+        discrep2txt(discrepancies)
+    elif fmt == 'html':
+        discrep2html(discrepancies, output)
