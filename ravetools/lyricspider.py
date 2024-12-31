@@ -1,12 +1,11 @@
 import logging
 import sqlite3
-import sys
 import time
 from dataclasses import dataclass
 from itertools import chain
-from multiprocessing import Pool, Process, Queue
+from multiprocessing import Process, Queue
 from os import PathLike
-from typing import Any, Callable, Iterable, Iterator, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 import click
 import requests
