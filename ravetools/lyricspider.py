@@ -44,7 +44,7 @@ class DB:
         """,
         """
         CREATE UNIQUE INDEX idx_lyrics_track_id ON lyrics(track_id);
-        """
+        """,
     ]
 
     def __init__(self, database: str | bytes | PathLike[str] | PathLike[bytes]):
@@ -72,7 +72,6 @@ class DB:
                         self.conn.execute(f"PRAGMA user_version = {ver+1:d};")
 
                     ver += 1
-
 
 
 @click.group()
@@ -219,7 +218,15 @@ def make_pool(n_workers, target, args=(), kwargs={}, **proc_kwargs) -> list[Proc
 @click.pass_context
 @click.option("--n-search-workers", default=4)
 @click.option("--n-lyrics-workers", default=4)
-def pull(ctx, n_search_workers, n_lyrics_workers):
+@click.option("--search-delay", default=0.1)
+@click.option("--lyrics-delay", default=0.1)
+def pull(
+    ctx,
+    n_search_workers: int,
+    n_lyrics_workers: int,
+    search_delay: float,
+    lyrics_delay: float,
+):
     """
     download lyrics for all songs in the local database without them
     """
@@ -253,11 +260,14 @@ def pull(ctx, n_search_workers, n_lyrics_workers):
 
     with tqdm(total=n_tracks) as pb:
         while res := queue_lyrics_results.get():
-            if not res.lyrics: continue
+            if not res.lyrics:
+                continue
             tqdm.write(f"== LYRICS RESULT: {res}")
             with db.conn:
-                db.conn.execute("INSERT INTO lyrics(track_id, genius_url, lyrics) VALUES (?, ?, ?)",
-                                (res.track.tid, res.genius_result['url'], res.lyrics))
+                db.conn.execute(
+                    "INSERT INTO lyrics(track_id, genius_url, lyrics) VALUES (?, ?, ?)",
+                    (res.track.tid, res.genius_result["url"], res.lyrics),
+                )
 
             pb.update(1)
 
