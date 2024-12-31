@@ -232,6 +232,10 @@ def pull(
     """
     db = ctx.obj["db"]
 
+    # get tracks from db  (id, title, artists) columns on table tracks
+    #  send them to a queue to be looked up on the genius search api by worker threads
+    #  send these results to a queue to be queried from each `url` by beautifulsoup
+    # join on the result of these workers and (main thread) continually push them into sqlite
     queue_track_details = Queue()
     queue_search_results = Queue()
     queue_lyrics_results = Queue()
@@ -273,8 +277,3 @@ def pull(
 
     for w in chain(search_workers, lyrics_workers):
         w.join()
-
-    # get tracks from db  (id, title, artists) columns on table tracks
-    #  send them to a queue to be looked up on the genius search api by worker threads
-    #  send these results to a queue to be queried from each `url` by beautifulsoup
-    # join on the result of these workers and (main thread) continually push them into sqlite
