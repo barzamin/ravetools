@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from itertools import chain
 from multiprocessing import Pool, Process, Queue
 from os import PathLike
-from typing import Any, Iterator
+from typing import Any, Callable, Iterable, Iterator, Mapping
 
 import click
 import requests
@@ -161,7 +161,9 @@ class LyricsResult:
 genius_client = None
 
 
-def worker_genius_search(queue_track_details: Queue, queue_search_results: Queue):
+def worker_genius_search(
+    delay: float, queue_track_details: Queue, queue_search_results: Queue
+):
     global genius_client
     if not genius_client:
         genius_client = Genius()  # shared per process
@@ -175,6 +177,7 @@ def worker_genius_search(queue_track_details: Queue, queue_search_results: Queue
             title=track_details.title, artist=track_details.artists
         )
         queue_search_results.put(SearchResult(track_details, res))
+        time.sleep(delay)
 
 
 def get_lyrics(session: requests.Session, search_res: SearchResult) -> LyricsResult:
@@ -196,7 +199,9 @@ def get_lyrics(session: requests.Session, search_res: SearchResult) -> LyricsRes
     return el_lyrics.get_text("\n")
 
 
-def worker_genius_lyrics(queue_search_results: Queue, queue_lyrics_results: Queue):
+def worker_genius_lyrics(
+    delay: float, queue_search_results: Queue, queue_lyrics_results: Queue
+):
     logger.debug(f"[thread=genius lyrics] booted")
     session = requests.Session()
 
@@ -205,9 +210,16 @@ def worker_genius_lyrics(queue_search_results: Queue, queue_lyrics_results: Queu
             search_res.track, search_res.genius_result, get_lyrics(session, search_res)
         )
         queue_lyrics_results.put(res)
+        time.sleep(delay)
 
 
-def make_pool(n_workers, target, args=(), kwargs={}, **proc_kwargs) -> list[Process]:
+def make_pool(
+    n_workers: int,
+    target: Callable[..., object],
+    args: Iterable[Any] = (),
+    kwargs: Mapping[str, Any] = {},
+    **proc_kwargs,
+) -> list[Process]:
     return [
         Process(target=target, args=args, kwargs=kwargs, **proc_kwargs)
         for _ in range(n_workers)
@@ -242,12 +254,12 @@ def pull(
     search_workers = make_pool(
         n_search_workers,
         worker_genius_search,
-        args=(queue_track_details, queue_search_results),
+        args=(search_delay, queue_track_details, queue_search_results),
     )
     lyrics_workers = make_pool(
         n_lyrics_workers,
         worker_genius_lyrics,
-        args=(queue_search_results, queue_lyrics_results),
+        args=(lyrics_delay, queue_search_results, queue_lyrics_results),
     )
     for w in chain(search_workers, lyrics_workers):
         w.start()
@@ -260,10 +272,12 @@ def pull(
     for row in track_iter:
         queue_track_details.put(SpotifyTrackDetails(*row))
 
-    n_tracks = db.conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+    n_tracks = db.conn.execute("""SELECT COUNT(*) FROM tracks LEFT JOIN lyrics ON tracks.id = lyrics.track_id
+        WHERE lyrics.track_id IS NULL""").fetchone()[0]
 
     with tqdm(total=n_tracks) as pb:
         while res := queue_lyrics_results.get():
+            pb.update(1)
             if not res.lyrics:
                 continue
             tqdm.write(f"== LYRICS RESULT: {res}")
@@ -272,8 +286,6 @@ def pull(
                     "INSERT INTO lyrics(track_id, genius_url, lyrics) VALUES (?, ?, ?)",
                     (res.track.tid, res.genius_result["url"], res.lyrics),
                 )
-
-            pb.update(1)
 
     for w in chain(search_workers, lyrics_workers):
         w.join()
