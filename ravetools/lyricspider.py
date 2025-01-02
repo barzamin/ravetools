@@ -212,12 +212,15 @@ def get_lyrics(session: requests.Session, search_res: SearchResult) -> LyricsRes
 
     resp = session.get(lyrics_page_url)
     bs = BeautifulSoup(resp.content, "lxml")
-    el_lyrics = bs.find(attrs={"data-lyrics-container": True})
-    if not el_lyrics:
+    lyrics_chunks = []
+    for el_lyrics in bs.find_all(attrs={"data-lyrics-container": True}):
+        lyrics_chunks.append(el_lyrics.get_text('\n'))
+
+    if not lyrics_chunks:
         # TODO: log this too - failure to find lyrics for a song that exists
         return None
 
-    return el_lyrics.get_text("\n")
+    return '\n'.join(lyrics_chunks)
 
 
 def worker_genius_lyrics(
