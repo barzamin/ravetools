@@ -9,6 +9,7 @@ from os import PathLike
 from typing import Any, Callable, Iterable, Mapping
 
 import click
+import rich.console
 import requests
 import spotipy
 from bs4 import BeautifulSoup
@@ -149,7 +150,7 @@ def sync(
                             item["track"]["id"],
                             item["track"]["name"],
                             ", ".join(a["name"] for a in item["track"]["artists"]),
-                            json.dumps(item['track']),
+                            json.dumps(item["track"]),
                         )
                         for item in res["items"]
                     ],
@@ -214,13 +215,13 @@ def get_lyrics(session: requests.Session, search_res: SearchResult) -> LyricsRes
     bs = BeautifulSoup(resp.content, "lxml")
     lyrics_chunks = []
     for el_lyrics in bs.find_all(attrs={"data-lyrics-container": True}):
-        lyrics_chunks.append(el_lyrics.get_text('\n'))
+        lyrics_chunks.append(el_lyrics.get_text("\n"))
 
     if not lyrics_chunks:
         # TODO: log this too - failure to find lyrics for a song that exists
         return None
 
-    return '\n'.join(lyrics_chunks)
+    return "\n".join(lyrics_chunks)
 
 
 def worker_genius_lyrics(
@@ -313,3 +314,38 @@ def pull(
 
     for w in chain(search_workers, lyrics_workers):
         w.join()
+
+
+@cli.command()
+@click.pass_context
+@click.argument("query")
+def search(ctx, query):
+    db = ctx.obj["db"]
+    c = rich.console.Console(highlight=False)
+
+    t0 = time.perf_counter()
+    results = db.conn.execute(
+        """\
+        SELECT
+            tracks.title, tracks.artists,
+            lyrics_idx.lyrics, highlight(lyrics_idx, 0, '<b>', '</b>')
+        FROM lyrics_idx
+        LEFT JOIN lyrics ON lyrics_idx.rowid=lyrics.id
+        LEFT JOIN tracks ON tracks.id=lyrics.track_id
+        WHERE lyrics_idx.lyrics MATCH ?""",
+        (query,),
+    ).fetchall()
+    dt = time.perf_counter() - t0
+
+    c.print(
+        f"query: [magenta]`{query}`[/]. [blue]{len(results)}[/] ([blue]{dt:.8f}[/] seconds)`",
+        highlight=False,
+    )
+    for title, artists, _lyrics, highlighted_lyrics in results:
+        c.rule(f"{artists} - {title}")
+        c.print(
+            rich.markup.escape(highlighted_lyrics)
+            .replace("<b>", "[bright_blue]")
+            .replace("</b>", "[/bright_blue]"),
+            highlight=False,
+        )
