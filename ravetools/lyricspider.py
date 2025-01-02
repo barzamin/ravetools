@@ -1,3 +1,4 @@
+import json
 import logging
 import sqlite3
 import time
@@ -24,12 +25,14 @@ logger = logging.getLogger(__name__)
 
 class DB:
     MIGRATIONS = [
+        # == MIGRATION 1: init ==
         """\
         CREATE TABLE tracks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             spotify_id TEXT NOT NULL,
             title TEXT NOT NULL,
-            artists TEXT NOT NULL
+            artists TEXT NOT NULL,
+            spotify_metadata NOT NULL -- JSON
         );
 
         CREATE TABLE lyrics (
@@ -41,8 +44,24 @@ class DB:
 
         CREATE UNIQUE INDEX idx_tracks_spotify_id ON tracks(spotify_id);
         """,
+        # == MIGRATION 2: lyrics are 1:1 with tracks ==
         """
         CREATE UNIQUE INDEX idx_lyrics_track_id ON lyrics(track_id);
+        """,
+        # == MIGRATION 3: FTS6 index and triggers to copy data ==
+        """
+        CREATE VIRTUAL TABLE lyrics_idx USING fts5(lyrics, content='lyrics', content_rowid='id');
+
+        CREATE TRIGGER idxtrig_lyrics_insert AFTER INSERT ON lyrics BEGIN
+            INSERT INTO lyrics_idx(rowid, lyrics) VALUES (new.id, new.lyrics);
+        END;
+        CREATE TRIGGER idxtrig_lyrics_delete AFTER DELETE ON lyrics BEGIN
+            INSERT INTO lyrics_idx(lyrics_idx, rowid, lyrics) VALUES ('delete', old.id, old.lyrics);
+        END;
+        CREATE TRIGGER idxtrig_lyrics_update AFTER UPDATE ON lyrics BEGIN
+            INSERT INTO lyrics_idx(lyrics_idx, rowid, lyrics) VALUES ('delete', old.id, old.lyrics);
+            INSERT INTO lyrics_idx(rowid, lyrics) VALUES (new.id, new.lyrics);
+        END;
         """,
     ]
 
@@ -58,19 +77,16 @@ class DB:
         return cur.fetchone()[0]
 
     def migrate(self):
-        cur_ver = self.get_schema_version()
-
         # 0 is fresh, 1 is first migration, etc.
         with self.conn:
-            if cur_ver < len(DB.MIGRATIONS):
-                ver = cur_ver
-                while ver < len(DB.MIGRATIONS):
-                    click.echo(f"running migration {i+1}")
-                    with self.conn:
-                        self.conn.executescript(migration)
-                        self.conn.execute(f"PRAGMA user_version = {ver+1:d};")
+            ver = self.get_schema_version()
+            while ver < len(DB.MIGRATIONS):
+                click.echo(f"running migration {ver+1}")
+                with self.conn:
+                    self.conn.executescript(DB.MIGRATIONS[ver])
+                    self.conn.execute(f"PRAGMA user_version = {ver+1:d};")
 
-                    ver += 1
+                ver += 1
 
 
 @click.group()
@@ -120,7 +136,12 @@ def sync(
             with db.conn:
                 cursor = db.conn.cursor()
                 cursor.executemany(
-                    """INSERT INTO tracks (spotify_id, title, artists) VALUES (?, ?, ?)
+                    """INSERT INTO tracks (
+                            spotify_id,
+                            title,
+                            artists,
+                            spotify_metadata
+                        ) VALUES (?, ?, ?, ?)
                         ON CONFLICT(spotify_id) DO NOTHING
                     """,
                     [
@@ -128,6 +149,7 @@ def sync(
                             item["track"]["id"],
                             item["track"]["name"],
                             ", ".join(a["name"] for a in item["track"]["artists"]),
+                            json.dumps(item['track']),
                         )
                         for item in res["items"]
                     ],
