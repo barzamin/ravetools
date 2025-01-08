@@ -9,4 +9,6 @@ __pycache__/
 
 compare.html
 testcrate/
+*.sqlite
+*.db
 
